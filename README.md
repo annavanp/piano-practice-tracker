@@ -91,6 +91,7 @@ npm run typecheck    # tsc for app and tests
 npm run lint
 npm run icons        # regenerate PNG icons from public/icons/icon.svg
 npm run screenshots  # drive the built app and save screenshots (args: pdf path, output dir)
+node scripts/check-live.mjs <url>   # load a deployed copy in WebKit and check manifest + service worker
 ```
 
 The tests generate a small three-page score with pdf-lib into `tests/.generated/` (ignored by git) and cover the ten acceptance checks that can run without a device: import, bar marking across two pages, tap / long press / scroll / pinch behaviour, persistence across reload, panel counts for the piece and a section, the history chart across a simulated date change, filter navigation, export → clear → import including the PDF, and offline loading through the service worker.
