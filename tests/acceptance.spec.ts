@@ -106,10 +106,14 @@ async function markPage(pageIndex: number) {
   const overlay = page.locator(`[data-testid="setup-overlay"][data-page="${pageIndex}"]`)
   await page.getByTestId('mode-systems').click()
   for (const [i, s] of SYSTEMS.entries()) {
-    const a = await setupPoint(pageIndex, s.x0, s.y0)
-    // Both corners must be on screen; the system is ~28% of a ~1500px page, so it is.
+    // Centre the whole system on screen so both corners of the drag are inside the viewport.
+    await setupPoint(pageIndex, s.x0, (s.y0 + s.y1) / 2)
     const box = (await overlay.boundingBox())!
+    const a = { x: box.x + s.x0 * box.width, y: box.y + s.y0 * box.height }
     const b = { x: box.x + s.x1 * box.width, y: box.y + s.y1 * box.height }
+    const score = (await page.getByTestId('setup-score').boundingBox())!
+    expect(a.y, 'drag start is inside the score viewport').toBeGreaterThan(score.y)
+    expect(b.y, 'drag end is inside the score viewport').toBeLessThan(score.y + score.height)
     await drag(a, b)
     await expect(overlay.getByTestId('system'), `system ${i + 1} on page ${pageIndex + 1} was created`).toHaveCount(i + 1)
   }
