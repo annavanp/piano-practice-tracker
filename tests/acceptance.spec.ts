@@ -103,22 +103,25 @@ async function drag(from: { x: number; y: number }, to: { x: number; y: number }
 }
 
 async function markPage(pageIndex: number) {
+  const overlay = page.locator(`[data-testid="setup-overlay"][data-page="${pageIndex}"]`)
   await page.getByTestId('mode-systems').click()
-  for (const s of SYSTEMS) {
+  for (const [i, s] of SYSTEMS.entries()) {
     const a = await setupPoint(pageIndex, s.x0, s.y0)
     // Both corners must be on screen; the system is ~28% of a ~1500px page, so it is.
-    const overlay = page.locator(`[data-testid="setup-overlay"][data-page="${pageIndex}"]`)
     const box = (await overlay.boundingBox())!
     const b = { x: box.x + s.x1 * box.width, y: box.y + s.y1 * box.height }
     await drag(a, b)
+    await expect(overlay.getByTestId('system'), `system ${i + 1} on page ${pageIndex + 1} was created`).toHaveCount(i + 1)
   }
   await page.getByTestId('mode-barlines').click()
-  for (const s of SYSTEMS) {
+  for (const [i, s] of SYSTEMS.entries()) {
     const midY = (s.y0 + s.y1) / 2
-    for (const rel of BARLINES_REL) {
+    const system = overlay.getByTestId('system').nth(i)
+    for (const [j, rel] of BARLINES_REL.entries()) {
       const fx = s.x0 + rel * (s.x1 - s.x0)
       const pt = await setupPoint(pageIndex, fx, midY)
       await page.touchscreen.tap(pt.x, pt.y)
+      await expect(system.getByTestId('barline'), `barline ${j + 1} in system ${i + 1} on page ${pageIndex + 1} was added`).toHaveCount(j + 1)
     }
   }
 }
