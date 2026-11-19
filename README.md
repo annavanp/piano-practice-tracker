@@ -19,13 +19,16 @@ Keep using the home-screen copy rather than the Safari tab: iPadOS keeps separat
 
 **Library.** Tap **Add piece from PDF…**, pick a PDF from the Files app, and give it a title and composer. You land in bar marking. Each piece in the list shows its hands-together progress. **Rename**, **Delete** (asks first) and **Bars** (reopen bar marking) are on each card.
 
-**Marking bars** (once per piece):
+**Marking bars** (once per piece). There is one mode, so you can draw every system first and then tap in the barlines, without switching tools:
 
-1. In **Systems** mode, drag a rectangle around each system (both staves together) on every page.
-2. In **Barlines** mode, tap inside a system wherever there is a barline. The left and right edges of the system already count, so only tap the ones in between.
-3. Bars are numbered automatically in reading order across systems and pages. Set **First bar** to 0 if the piece starts with a pickup bar.
+- **Drag on empty paper** to draw a rectangle around a system (both staves together). Its left and right edges snap to the edges of systems you have already drawn, so they line up.
+- **Tap inside a system** to add a barline there. The system's left and right edges already count as barlines, so only tap the ones in between.
+- **Tap a barline** to remove it, or **drag it** to move it.
+- **Drag a corner handle** to resize a system, **drag inside it** to move it, or tap the **✕** beside it to delete it.
+- **Scroll with two fingers**, since one finger draws. One finger also scrolls on the grey margin around the page.
+- **Undo** reverts the last change.
 
-Tap a system to select it, then drag it to move, drag a corner handle to resize, or tap the red ✕ to delete it. Tap a barline to delete it, or drag it to move it. **Undo** reverts the last change. You can reopen bar marking at any time; bars that did not change keep their lights.
+Bars are numbered automatically in reading order across systems and pages, and the toolbar shows how many systems and bars you have. Set **First bar** to 0 if the piece starts with a pickup bar. You can reopen bar marking at any time; bars that did not change keep their lights.
 
 **Practice view.** The score scrolls vertically through all pages. Above every bar are three lights: **R** (right hand), **L** (left hand) and **H** (hands together).
 
@@ -58,6 +61,7 @@ The backup file carries a schema version, as does the database, so a later versi
 - **History chart** shows one column per day on which a hands-together light changed, plus today, using the local date. Days without changes are omitted so a long gap does not flatten the chart. Only bars that still exist are counted.
 - **Practice filter navigation** moves through the piece in reading order from the current target and wraps around at the ends. When nothing matches, a short notice appears and no bar is outlined.
 - **Light hit areas** are 44 pt tall and up to 56 pt wide. On narrow bars the width shrinks to a third of the bar (never below 30 pt) so neighbouring lights do not overlap; zoom in or hide the panel if bars are cramped. The coloured pill itself stays small so it does not cover notes.
+- **Bar marking has no mode switch.** A tap inside a system adds a barline and a drag inside it moves the system, so the two are told apart by movement (10 pt). One finger draws on the page, so scrolling there takes two fingers.
 - **Gestures.** A tap only counts if the finger moves less than 10 pt and lifts within 550 ms; a long press is 550 ms. One-finger scrolling is left to Safari; a second finger cancels any pending tap and starts a pinch that the app handles itself (page pinch-zoom is disabled in the viewport meta tag so the layout cannot be zoomed accidentally).
 - **Panel visibility** follows orientation: shown in landscape, hidden in portrait, with the **Progress** button overriding until the next rotation. On screens narrower than 700 px the panel floats over the score.
 - **Bar numbers** are shown on the score only for the first bar of each system, in the left margin, to keep the page quiet. In bar marking every bar shows its number.

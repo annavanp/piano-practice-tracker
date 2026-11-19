@@ -104,7 +104,6 @@ async function drag(from: { x: number; y: number }, to: { x: number; y: number }
 
 async function markPage(pageIndex: number) {
   const overlay = page.locator(`[data-testid="setup-overlay"][data-page="${pageIndex}"]`)
-  await page.getByTestId('mode-systems').click()
   for (const [i, s] of SYSTEMS.entries()) {
     // Centre the whole system on screen so both corners of the drag are inside the viewport.
     await setupPoint(pageIndex, s.x0, (s.y0 + s.y1) / 2)
@@ -117,7 +116,6 @@ async function markPage(pageIndex: number) {
     await drag(a, b)
     await expect(overlay.getByTestId('system'), `system ${i + 1} on page ${pageIndex + 1} was created`).toHaveCount(i + 1)
   }
-  await page.getByTestId('mode-barlines').click()
   for (const [i, s] of SYSTEMS.entries()) {
     const midY = (s.y0 + s.y1) / 2
     const system = overlay.getByTestId('system').nth(i)
@@ -162,15 +160,15 @@ test('1. import a multi-page PDF and see it in the library', async () => {
   await expect(card).toContainText('Bars not marked yet')
 })
 
-test('2. mark systems and barlines on two pages; bars number in reading order', async () => {
+test('2. mark systems and barlines on two pages in one mode; bars number in reading order', async () => {
   await page.getByRole('button', { name: 'Mark bars' }).click()
   await expect(page.getByTestId('setup')).toBeVisible()
   await expect(page.locator('.page').first().locator('canvas')).toBeVisible()
 
   await markPage(0)
-  await expect(page.getByTestId('bar-count')).toHaveText('6 bars')
+  await expect(page.getByTestId('bar-count')).toHaveText('2 systems · 6 bars')
   await markPage(1)
-  await expect(page.getByTestId('bar-count')).toHaveText('12 bars')
+  await expect(page.getByTestId('bar-count')).toHaveText('4 systems · 12 bars')
 
   const numbersOn = async (p: number) =>
     (await page.locator(`[data-testid="setup-overlay"][data-page="${p}"] [data-testid="bar-number"]`).allTextContents()).map(Number).sort((a, b) => a - b)
@@ -185,17 +183,59 @@ test('2. mark systems and barlines on two pages; bars number in reading order', 
 
   // Undo removes the last barline, then redo it by tapping again.
   await page.getByTestId('undo').click()
-  await expect(page.getByTestId('bar-count')).toHaveText('11 bars')
+  await expect(page.getByTestId('bar-count')).toHaveText('4 systems · 11 bars')
   const s = SYSTEMS[1]
   const pt = await setupPoint(1, s.x0 + BARLINES_REL[1] * (s.x1 - s.x0), (s.y0 + s.y1) / 2)
   await page.touchscreen.tap(pt.x, pt.y)
-  await expect(page.getByTestId('bar-count')).toHaveText('12 bars')
+  await expect(page.getByTestId('bar-count')).toHaveText('4 systems · 12 bars')
 
   // Tapping an existing barline deletes it; tapping again restores it.
   await page.touchscreen.tap(pt.x, pt.y)
-  await expect(page.getByTestId('bar-count')).toHaveText('11 bars')
+  await expect(page.getByTestId('bar-count')).toHaveText('4 systems · 11 bars')
   await page.touchscreen.tap(pt.x, pt.y)
-  await expect(page.getByTestId('bar-count')).toHaveText('12 bars')
+  await expect(page.getByTestId('bar-count')).toHaveText('4 systems · 12 bars')
+
+  // A system can be moved by dragging inside it, deleted with its ✕, and the delete undone.
+  // Use the unused third page so the bar counts above stay put.
+  const page3 = page.locator('[data-testid="setup-overlay"][data-page="2"]')
+  const s0 = SYSTEMS[0]
+  await setupPoint(2, s0.x0, (s0.y0 + s0.y1) / 2)
+  let box = (await page3.boundingBox())!
+  await drag({ x: box.x + s0.x0 * box.width, y: box.y + s0.y0 * box.height }, { x: box.x + s0.x1 * box.width, y: box.y + s0.y1 * box.height })
+  await expect(page.getByTestId('bar-count')).toHaveText('5 systems · 13 bars')
+  const sysRect = page3.getByTestId('system').locator('rect.system')
+  const yBefore = Number(await sysRect.getAttribute('y'))
+  box = (await page3.boundingBox())!
+  const inside = { x: box.x + 0.2 * box.width, y: box.y + ((s0.y0 + s0.y1) / 2) * box.height }
+  await drag(inside, { x: inside.x, y: inside.y + 60 })
+  await expect.poll(async () => Number(await sysRect.getAttribute('y'))).toBeGreaterThan(yBefore + 50)
+  await expect(page3.getByTestId('barline')).toHaveCount(0)
+  await page3.locator('..').getByTestId('delete-system').click()
+  await expect(page.getByTestId('bar-count')).toHaveText('4 systems · 12 bars')
+  await page.getByTestId('undo').click()
+  await expect(page.getByTestId('bar-count')).toHaveText('5 systems · 13 bars')
+  await page3.locator('..').getByTestId('delete-system').click()
+  await expect(page.getByTestId('bar-count')).toHaveText('4 systems · 12 bars')
+
+  // Two fingers scroll the page and never draw a system.
+  const scroller = page.getByTestId('setup-score')
+  const top0 = await scroller.evaluate((el) => el.scrollTop)
+  box = (await page3.boundingBox())!
+  await page3.evaluate(
+    new Function('el', 'args', TOUCH_HELPER + `
+      const { x, y } = args;
+      pointer(el, 'pointerdown', 11, x, y);
+      fire(el, 'touchstart', [{ x, y }, { x: x + 80, y }]);
+      el.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 12, isPrimary: false, clientX: x + 80, clientY: y, pointerType: 'touch', bubbles: true }));
+      fire(el, 'touchmove', [{ x, y: y - 150 }, { x: x + 80, y: y - 150 }]);
+      pointer(el, 'pointermove', 11, x, y - 150);
+      fire(el, 'touchend', []);
+      pointer(el, 'pointerup', 11, x, y - 150);
+    `) as (el: Element, args: { x: number; y: number }) => void,
+    { x: box.x + 0.5 * box.width, y: box.y + 0.9 * box.height },
+  )
+  await expect.poll(async () => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(top0 + 100)
+  await expect(page.getByTestId('bar-count')).toHaveText('4 systems · 12 bars')
 
   await page.getByTestId('done').click()
   await expect(page.getByTestId('practice')).toBeVisible()

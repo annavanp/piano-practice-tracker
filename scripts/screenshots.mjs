@@ -20,14 +20,11 @@ for (const s of SYSTEMS) {
   const box = await overlay.boundingBox()
   await drag({ x: box.x + s.x0 * box.width, y: box.y + s.y0 * box.height }, { x: box.x + s.x1 * box.width, y: box.y + s.y1 * box.height })
 }
-await page.getByTestId('mode-barlines').click()
 for (const s of SYSTEMS) {
   await overlay.evaluate((el, fy) => { const sc = el.closest('.score'); const r = el.getBoundingClientRect(); const sr = sc.getBoundingClientRect(); sc.scrollTop += r.top + fy * r.height - (sr.top + sr.height / 2) }, (s.y0 + s.y1) / 2)
   const box = await overlay.boundingBox()
   for (const rel of [1 / 3, 2 / 3]) await page.touchscreen.tap(box.x + (s.x0 + rel * (s.x1 - s.x0)) * box.width, box.y + ((s.y0 + s.y1) / 2) * box.height)
 }
-await page.getByTestId('mode-systems').click()
-await page.locator('[data-testid="setup-overlay"][data-page="0"] rect.system').first().click()
 await page.getByTestId('setup-score').evaluate((el) => (el.scrollTop = 0))
 await page.screenshot({ path: `${outDir}/setup.png` })
 await page.getByTestId('done').click()

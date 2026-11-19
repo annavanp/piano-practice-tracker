@@ -9,20 +9,30 @@ import { usePieceData } from '../hooks/usePieceData'
 import { deriveBars } from '../lib/bars'
 import { navigate } from '../router'
 
-type Mode = 'systems' | 'barlines'
+/*
+ * Bar marking works in one mode, so a whole page can be done without switching tools:
+ *   drag on empty paper        → draw a system
+ *   tap inside a system        → add a barline there
+ *   tap a barline              → remove it;  drag a barline → move it
+ *   drag a corner handle       → resize the system
+ *   drag inside a system       → move the system
+ *   ✕ beside a system          → delete it
+ *   two fingers                → scroll (one finger draws)
+ */
 
 const HIT_PX = 22 // half of a 44pt touch target
-const MOVE_PX = 6
+const TAP_PX = 10 // a finger that moves less than this is a tap
+const SNAP_PX = 14 // system edges snap to other systems' edges within this distance
 const MIN_SYSTEM = 0.02
 
 type Corner = 'nw' | 'ne' | 'sw' | 'se'
 
 type Drag =
-  | { type: 'draw'; page: number; x0: number; y0: number }
-  | { type: 'move'; id: string; start: Rect; x0: number; y0: number; moved: boolean; before: System[] }
+  | { type: 'draw'; x0: number; y0: number }
+  /** Started inside a system away from barlines: a tap adds a barline, a drag moves the system. */
+  | { type: 'body'; id: string; start: Rect; x0: number; y0: number; moved: boolean; before: System[] }
   | { type: 'resize'; id: string; corner: Corner; start: Rect; x0: number; y0: number; before: System[] }
   | { type: 'barline'; id: string; index: number; x0: number; moved: boolean; before: System[] }
-  | { type: 'addbar'; id: string; rel: number; x0: number; y0: number }
 
 export function Setup({ pieceId }: { pieceId: string }) {
   const { data, actions } = usePieceData(pieceId)
@@ -44,13 +54,13 @@ function SetupView({ data, actions, pieceId }: SetupViewProps) {
   const pdf = usePdfDocument(data.piece.pdf)
   const scoreRef = useRef<HTMLDivElement>(null)
   const width = useElementWidth(scoreRef)
-  const [mode, setMode] = useState<Mode>('systems')
   const [systems, setSystems] = useState<System[]>(data.systems)
-  const [selected, setSelected] = useState<string | null>(null)
   const [history, setHistory] = useState<System[][]>([])
   const [draft, setDraft] = useState<{ page: number; rect: Rect } | null>(null)
   const [firstBar, setFirstBar] = useState<number>(data.piece.firstBarNumber)
   const dragRef = useRef<Drag | null>(null)
+  /** Set by the overlay so a second finger can cancel the one-finger gesture in progress. */
+  const cancelDragRef = useRef<(() => void) | null>(null)
 
   const pageWidth = Math.max(0, width)
 
@@ -68,18 +78,51 @@ function SetupView({ data, actions, pieceId }: SetupViewProps) {
     const prev = history[history.length - 1]
     setHistory((h) => h.slice(0, -1))
     setSystems(prev)
-    setSelected((id) => (prev.some((s) => s.id === id) ? id : null))
     void actions.saveSystems(prev)
   }
+
+  // Two-finger pan scrolls the score; one finger is reserved for drawing.
+  useEffect(() => {
+    const el = scoreRef.current
+    if (!el) return
+    let last: { x: number; y: number } | null = null
+    const mid = (t: TouchList) => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 })
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        cancelDragRef.current?.()
+        last = mid(e.touches)
+        e.preventDefault()
+      }
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!last || e.touches.length !== 2) return
+      e.preventDefault()
+      const m = mid(e.touches)
+      el.scrollTop -= m.y - last.y
+      el.scrollLeft -= m.x - last.x
+      last = m
+    }
+    const onEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) last = null
+    }
+    el.addEventListener('touchstart', onStart, { passive: false })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onEnd)
+    el.addEventListener('touchcancel', onEnd)
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+      el.removeEventListener('touchcancel', onEnd)
+    }
+  }, [])
 
   const bars = useMemo<Bar[]>(() => deriveBars(pieceId, systems, firstBar, data.bars), [data.bars, systems, firstBar, pieceId])
 
   const hint =
-    mode === 'systems'
-      ? selected
-        ? 'Drag the system to move it, drag a corner to resize, or tap ✕ to delete it.'
-        : 'Drag a rectangle around each system (both staves together). Tap a system to select it.'
-      : 'Tap inside a system to add a barline. Tap a barline to delete it, or drag it to move it. The edges count as barlines already.'
+    systems.length === 0
+      ? 'Drag a rectangle around each system (both staves together). You can draw them all first, then tap in the barlines.'
+      : 'Drag on empty paper for a new system · tap inside a system to add a barline · tap a barline to remove it · drag a corner or the system to adjust · scroll with two fingers.'
 
   const changeFirstBar = (n: number) => {
     setFirstBar(n)
@@ -93,23 +136,6 @@ function SetupView({ data, actions, pieceId }: SetupViewProps) {
           ←
         </button>
         <span className="title">{data.piece.title} · mark bars</span>
-        <div className="segmented" role="radiogroup" aria-label="Mode">
-          <button className={mode === 'systems' ? 'active' : ''} role="radio" aria-checked={mode === 'systems'} onClick={() => setMode('systems')} data-testid="mode-systems">
-            Systems
-          </button>
-          <button
-            className={mode === 'barlines' ? 'active' : ''}
-            role="radio"
-            aria-checked={mode === 'barlines'}
-            onClick={() => {
-              setMode('barlines')
-              setSelected(null)
-            }}
-            data-testid="mode-barlines"
-          >
-            Barlines
-          </button>
-        </div>
         <button onClick={undo} disabled={history.length === 0} data-testid="undo">
           Undo
         </button>
@@ -118,7 +144,7 @@ function SetupView({ data, actions, pieceId }: SetupViewProps) {
           <Stepper value={firstBar} onChange={changeFirstBar} min={0} max={999} label="First bar number" testId="first-bar" />
         </div>
         <span style={{ fontSize: 14, color: 'var(--text-muted)' }} data-testid="bar-count">
-          {bars.length} bars
+          {systems.length} system{systems.length === 1 ? '' : 's'} · {bars.length} bars
         </span>
         <button className="primary" onClick={() => navigate({ name: 'practice', id: pieceId })} disabled={bars.length === 0} data-testid="done">
           Done
@@ -136,14 +162,12 @@ function SetupView({ data, actions, pieceId }: SetupViewProps) {
                     page={i}
                     W={pageWidth}
                     H={H}
-                    mode={mode}
                     systems={systems}
                     bars={bars}
-                    selected={selected}
                     draft={draft?.page === i ? draft.rect : null}
                     dragRef={dragRef}
+                    cancelDragRef={cancelDragRef}
                     setDraft={setDraft}
-                    setSelected={setSelected}
                     setSystems={setSystems}
                     commit={commit}
                     pieceId={pieceId}
@@ -162,14 +186,12 @@ interface OverlayProps {
   page: number
   W: number
   H: number
-  mode: Mode
   systems: System[]
   bars: Bar[]
-  selected: string | null
   draft: Rect | null
   dragRef: React.MutableRefObject<Drag | null>
+  cancelDragRef: React.MutableRefObject<(() => void) | null>
   setDraft: (d: { page: number; rect: Rect } | null) => void
-  setSelected: (id: string | null) => void
   setSystems: (s: System[]) => void
   commit: (before: System[], next: System[]) => void
   pieceId: string
@@ -181,59 +203,85 @@ function normRect(x0: number, y0: number, x1: number, y1: number): Rect {
   return { x, y, w: Math.min(1, Math.max(x0, x1)) - x, h: Math.min(1, Math.max(y0, y1)) - y }
 }
 
-function inRect(r: Rect, fx: number, fy: number, slopX = 0, slopY = 0): boolean {
-  return fx >= r.x - slopX && fx <= r.x + r.w + slopX && fy >= r.y - slopY && fy <= r.y + r.h + slopY
+function inRect(r: Rect, fx: number, fy: number): boolean {
+  return fx >= r.x && fx <= r.x + r.w && fy >= r.y && fy <= r.y + r.h
 }
 
-function SetupOverlay(p: OverlayProps) {
-  const { page, W, H, mode, systems, bars, selected, draft, dragRef, setDraft, setSelected, setSystems, commit } = p
-  const svgRef = useRef<SVGSVGElement>(null)
-  const pageSystems = systems.filter((s) => s.page === page)
-  const selectedSys = pageSystems.find((s) => s.id === selected) ?? null
-
-  const toFrac = (e: React.PointerEvent) => {
-    const r = svgRef.current!.getBoundingClientRect()
-    return { fx: (e.clientX - r.left) / r.width, fy: (e.clientY - r.top) / r.height, px: e.clientX, py: e.clientY }
-  }
-  const slopX = HIT_PX / W
-  const slopY = HIT_PX / H
-
-  const corners = (r: Rect): Record<Corner, { x: number; y: number }> => ({
+function corners(r: Rect): Record<Corner, { x: number; y: number }> {
+  return {
     nw: { x: r.x, y: r.y },
     ne: { x: r.x + r.w, y: r.y },
     sw: { x: r.x, y: r.y + r.h },
     se: { x: r.x + r.w, y: r.y + r.h },
-  })
+  }
+}
 
-  const onDown = (e: React.PointerEvent) => {
-    if (!e.isPrimary || dragRef.current) return
-    e.currentTarget.setPointerCapture(e.pointerId)
-    const { fx, fy } = toFrac(e)
-    if (mode === 'systems') {
-      if (selectedSys) {
-        for (const [corner, c] of Object.entries(corners(selectedSys.rect)) as [Corner, { x: number; y: number }][]) {
-          if (Math.abs(c.x - fx) <= slopX && Math.abs(c.y - fy) <= slopY) {
-            dragRef.current = { type: 'resize', id: selectedSys.id, corner, start: selectedSys.rect, x0: fx, y0: fy, before: systems }
-            return
-          }
+const OPPOSITE: Record<Corner, Corner> = { nw: 'se', ne: 'sw', sw: 'ne', se: 'nw' }
+
+function SetupOverlay(p: OverlayProps) {
+  const { page, W, H, systems, bars, draft, dragRef, cancelDragRef, setDraft, setSystems, commit } = p
+  const svgRef = useRef<SVGSVGElement>(null)
+  const pageSystems = systems.filter((s) => s.page === page)
+
+  const toFrac = (e: React.PointerEvent) => {
+    const r = svgRef.current!.getBoundingClientRect()
+    return { fx: (e.clientX - r.left) / r.width, fy: (e.clientY - r.top) / r.height }
+  }
+  const slopX = HIT_PX / W
+  const slopY = HIT_PX / H
+  const isTap = (dx: number, dy: number) => Math.hypot(dx * W, dy * H) <= TAP_PX
+
+  /** Snap a horizontal edge to the nearest left/right edge of another system in the piece. */
+  const snapX = (x: number, excludeId?: string) => {
+    let best = x
+    let bestDist = SNAP_PX / W
+    for (const s of systems) {
+      if (s.id === excludeId) continue
+      for (const edge of [s.rect.x, s.rect.x + s.rect.w]) {
+        const d = Math.abs(edge - x)
+        if (d < bestDist) {
+          bestDist = d
+          best = edge
         }
       }
-      const hit = [...pageSystems].reverse().find((s) => inRect(s.rect, fx, fy))
-      if (hit) {
-        setSelected(hit.id)
-        dragRef.current = { type: 'move', id: hit.id, start: hit.rect, x0: fx, y0: fy, moved: false, before: systems }
-        return
+    }
+    return best
+  }
+
+  const cancel = () => {
+    const d = dragRef.current
+    dragRef.current = null
+    setDraft(null)
+    if (d && 'before' in d) setSystems(d.before)
+  }
+
+  const onDown = (e: React.PointerEvent) => {
+    if (!e.isPrimary) {
+      // A second finger: abandon the one-finger gesture so it can scroll instead.
+      cancel()
+      return
+    }
+    if (dragRef.current) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    cancelDragRef.current = cancel
+    const { fx, fy } = toFrac(e)
+
+    // 1. Corner handles of any system on this page.
+    for (const s of pageSystems) {
+      for (const [corner, c] of Object.entries(corners(s.rect)) as [Corner, { x: number; y: number }][]) {
+        if (Math.abs(c.x - fx) <= slopX && Math.abs(c.y - fy) <= slopY) {
+          dragRef.current = { type: 'resize', id: s.id, corner, start: s.rect, x0: fx, y0: fy, before: systems }
+          return
+        }
       }
-      setSelected(null)
-      dragRef.current = { type: 'draw', page, x0: fx, y0: fy }
-      setDraft({ page, rect: { x: fx, y: fy, w: 0, h: 0 } })
-    } else {
-      const sys = pageSystems.find((s) => inRect(s.rect, fx, fy, 0, slopY))
-      if (!sys) return
+    }
+
+    // 2. Inside a system: an existing barline, or the body.
+    const sys = [...pageSystems].reverse().find((s) => inRect(s.rect, fx, fy))
+    if (sys) {
       const rel = (fx - sys.rect.x) / sys.rect.w
-      const relSlop = slopX / sys.rect.w
       let nearest = -1
-      let best = relSlop
+      let best = slopX / sys.rect.w
       sys.barlines.forEach((b, i) => {
         const d = Math.abs(b - rel)
         if (d <= best) {
@@ -241,22 +289,28 @@ function SetupOverlay(p: OverlayProps) {
           nearest = i
         }
       })
-      if (nearest >= 0) dragRef.current = { type: 'barline', id: sys.id, index: nearest, x0: fx, moved: false, before: systems }
-      else dragRef.current = { type: 'addbar', id: sys.id, rel, x0: fx, y0: fy }
+      dragRef.current =
+        nearest >= 0
+          ? { type: 'barline', id: sys.id, index: nearest, x0: fx, moved: false, before: systems }
+          : { type: 'body', id: sys.id, start: sys.rect, x0: fx, y0: fy, moved: false, before: systems }
+      return
     }
+
+    // 3. Empty paper: draw a new system.
+    dragRef.current = { type: 'draw', x0: snapX(fx), y0: fy }
+    setDraft({ page, rect: { x: fx, y: fy, w: 0, h: 0 } })
   }
 
   const onMove = (e: React.PointerEvent) => {
     const d = dragRef.current
-    if (!d) return
+    if (!d || !e.isPrimary) return
     const { fx, fy } = toFrac(e)
-    const movedPx = (dx: number, dy: number) => Math.hypot(dx * W, dy * H) > MOVE_PX
     switch (d.type) {
       case 'draw':
-        setDraft({ page, rect: normRect(d.x0, d.y0, fx, fy) })
+        setDraft({ page, rect: normRect(d.x0, d.y0, snapX(fx), fy) })
         break
-      case 'move': {
-        if (!d.moved && !movedPx(fx - d.x0, fy - d.y0)) return
+      case 'body': {
+        if (!d.moved && isTap(fx - d.x0, fy - d.y0)) return
         d.moved = true
         const nx = Math.min(1 - d.start.w, Math.max(0, d.start.x + fx - d.x0))
         const ny = Math.min(1 - d.start.h, Math.max(0, d.start.y + fy - d.y0))
@@ -266,14 +320,14 @@ function SetupOverlay(p: OverlayProps) {
       case 'resize': {
         const c = corners(d.start)
         const moving = c[d.corner]
-        const opposite = c[d.corner === 'nw' ? 'se' : d.corner === 'ne' ? 'sw' : d.corner === 'sw' ? 'ne' : 'nw']
-        const r = normRect(opposite.x, opposite.y, moving.x + fx - d.x0, moving.y + fy - d.y0)
+        const opposite = c[OPPOSITE[d.corner]]
+        const r = normRect(opposite.x, opposite.y, snapX(moving.x + fx - d.x0, d.id), moving.y + fy - d.y0)
         if (r.w < MIN_SYSTEM || r.h < MIN_SYSTEM) return
         setSystems(systems.map((s) => (s.id === d.id ? { ...s, rect: r } : s)))
         break
       }
       case 'barline': {
-        if (!d.moved && !movedPx(fx - d.x0, 0)) return
+        if (!d.moved && isTap(fx - d.x0, 0)) return
         d.moved = true
         setSystems(
           systems.map((s) => {
@@ -281,73 +335,57 @@ function SetupOverlay(p: OverlayProps) {
             const rel = Math.min(0.995, Math.max(0.005, (fx - s.rect.x) / s.rect.w))
             const barlines = [...s.barlines]
             barlines[d.index] = rel
-            return { ...s, barlines }
+            return { ...s, barlines: barlines.sort((a, b) => a - b) }
           }),
         )
         break
       }
-      case 'addbar':
-        break
     }
   }
 
   const onUp = (e: React.PointerEvent) => {
     const d = dragRef.current
-    if (!d) return
+    if (!d || !e.isPrimary) return
     dragRef.current = null
+    cancelDragRef.current = null
     const { fx, fy } = toFrac(e)
     switch (d.type) {
       case 'draw': {
-        const r = normRect(d.x0, d.y0, fx, fy)
+        const r = normRect(d.x0, d.y0, snapX(fx), fy)
         setDraft(null)
         if (r.w >= MIN_SYSTEM && r.h >= MIN_SYSTEM) {
-          const sys: System = { id: newId(), pieceId: p.pieceId, page, rect: r, barlines: [] }
-          commit(systems, [...systems, sys])
-          setSelected(sys.id)
+          commit(systems, [...systems, { id: newId(), pieceId: p.pieceId, page, rect: r, barlines: [] }])
         }
         break
       }
-      case 'move':
-      case 'resize':
-        if (d.type === 'resize' || d.moved) commit(d.before, systems)
-        break
-      case 'barline': {
+      case 'body': {
         if (d.moved) {
           commit(d.before, systems)
-        } else {
-          commit(
-            d.before,
-            d.before.map((s) => (s.id === d.id ? { ...s, barlines: s.barlines.filter((_, i) => i !== d.index) } : s)),
-          )
+          break
         }
-        break
-      }
-      case 'addbar': {
-        if (Math.hypot((fx - d.x0) * W, (fy - d.y0) * H) > MOVE_PX) break
-        const rel = Math.min(0.995, Math.max(0.005, d.rel))
+        // A tap: add a barline where the finger went down.
+        const rel = Math.min(0.995, Math.max(0.005, (d.x0 - d.start.x) / d.start.w))
         commit(
-          systems,
-          systems.map((s) => (s.id === d.id ? { ...s, barlines: [...s.barlines, rel].sort((a, b) => a - b) } : s)),
+          d.before,
+          d.before.map((s) => (s.id === d.id ? { ...s, barlines: [...s.barlines, rel].sort((a, b) => a - b) } : s)),
         )
         break
       }
+      case 'resize':
+        commit(d.before, systems)
+        break
+      case 'barline':
+        if (d.moved) commit(d.before, systems)
+        else commit(d.before, d.before.map((s) => (s.id === d.id ? { ...s, barlines: s.barlines.filter((_, i) => i !== d.index) } : s)))
+        break
     }
   }
 
-  const onCancel = () => {
-    const d = dragRef.current
-    dragRef.current = null
-    setDraft(null)
-    if (d && 'before' in d) setSystems(d.before)
-  }
-
-  const deleteSelected = () => {
-    if (!selectedSys) return
+  const deleteSystem = (id: string) => {
     commit(
       systems,
-      systems.filter((s) => s.id !== selectedSys.id),
+      systems.filter((s) => s.id !== id),
     )
-    setSelected(null)
   }
 
   return (
@@ -363,21 +401,21 @@ function SetupOverlay(p: OverlayProps) {
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerCancel={onCancel}
+        onPointerCancel={cancel}
         onContextMenu={(e) => e.preventDefault()}
       >
         {pageSystems.map((s) => {
           const r = s.rect
           return (
             <g key={s.id} data-testid="system" data-system-id={s.id}>
-              <rect className={`system${s.id === selected ? ' selected' : ''}`} x={r.x * W} y={r.y * H} width={r.w * W} height={r.h * H} />
+              <rect className="system" x={r.x * W} y={r.y * H} width={r.w * W} height={r.h * H} />
               {s.barlines.map((b, i) => {
                 const x = (r.x + b * r.w) * W
                 return <line key={i} className="barline" data-testid="barline" x1={x} y1={r.y * H} x2={x} y2={(r.y + r.h) * H} />
               })}
-              {mode === 'systems' &&
-                s.id === selected &&
-                Object.values(corners(r)).map((c, i) => <circle key={i} className="handle" cx={c.x * W} cy={c.y * H} r={9} />)}
+              {Object.values(corners(r)).map((c, i) => (
+                <circle key={i} className="handle" cx={c.x * W} cy={c.y * H} r={7} />
+              ))}
             </g>
           )
         })}
@@ -386,25 +424,31 @@ function SetupOverlay(p: OverlayProps) {
           .map((b) => {
             const sys = pageSystems.find((s) => s.id === b.systemId)!
             return (
-              <text key={b.id} className="barnum" x={b.left * W + 3} y={sys.rect.y * H - 3} data-testid="bar-number" data-bar={b.number}>
+              <text key={b.id} className="barnum" x={b.left * W + 10} y={sys.rect.y * H - 4} data-testid="bar-number" data-bar={b.number}>
                 {b.number}
               </text>
             )
           })}
         {draft && <rect className="draft" x={draft.x * W} y={draft.y * H} width={draft.w * W} height={draft.h * H} />}
       </svg>
-      {mode === 'systems' && selectedSys && (
-        <button
-          className="sys-delete"
-          aria-label="Delete system"
-          data-testid="delete-system"
-          style={{ left: (selectedSys.rect.x + selectedSys.rect.w) * W, top: selectedSys.rect.y * H }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={deleteSelected}
-        >
-          ✕
-        </button>
-      )}
+      {pageSystems.map((s) => {
+        // Beside the system's right edge, vertically centred, kept on the page.
+        const left = Math.min((s.rect.x + s.rect.w) * W + 30, W - 24)
+        const top = (s.rect.y + s.rect.h / 2) * H
+        return (
+          <button
+            key={s.id}
+            className="sys-delete"
+            aria-label="Delete system"
+            data-testid="delete-system"
+            style={{ left, top }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => deleteSystem(s.id)}
+          >
+            ✕
+          </button>
+        )
+      })}
     </>
   )
 }
