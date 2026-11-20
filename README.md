@@ -30,9 +30,10 @@ Keep using the home-screen copy rather than the Safari tab: iPadOS keeps separat
 
 Bars are numbered automatically in reading order across systems and pages, and the toolbar shows how many systems and bars you have. Set **First bar** to 0 if the piece starts with a pickup bar. You can reopen bar marking at any time; bars that did not change keep their lights.
 
-**Practice view.** The score scrolls vertically through all pages. Above every bar are three lights: **R** (right hand), **L** (left hand) and **H** (hands together).
+**Practice view.** The score scrolls vertically through all pages. Above every bar are three lights: **L** (left hand), **R** (right hand) and **H** (hands together).
 
 - Tap a light to cycle grey → red → yellow → green → red.
+- **Pens.** The red, yellow and green pens down the right-hand side of the score set a light to that colour in one tap. Tap the picked pen again to put it down and go back to cycling. The app remembers which pen you had picked.
 - Long-press a light to reset it to grey.
 - Each level also has a glyph, so colour is never the only cue: ✕ red, − yellow, ✓ green, blank grey.
 - Zoom with a two-finger pinch or the − / + buttons; tap the percentage to fit the width again.
@@ -41,6 +42,13 @@ Bars are numbered automatically in reading order across systems and pages, and t
 - **Tint bars by HT colour** (in the panel) shades each bar faintly with its hands-together colour.
 
 **Progress panel.** Headline percentage of bars that are green hands-together; a stacked bar per hand; sections (tap one to scroll to it, ✎ to edit, ✕ to delete); a history chart of hands-together red / yellow / green counts by day; and the practice-filter settings (which light counts, and whether yellow counts as needing work).
+
+## Keeping your pieces safe
+
+- **Use the home-screen app, not a Safari tab.** The library shows a yellow warning when it is open in a Safari tab. Pieces saved in a Safari tab are kept apart from the home-screen app, and Safari can delete them if the page is not opened for about a week. If you added pieces in Safari, export a backup there and import it in the home-screen app.
+- **Saves survive the iPad suspending the app.** iPadOS can drop the app's database connection while it sits in the background. The app now reopens it automatically and retries, so lights tapped after a long pause are still saved.
+- **A failed save is never silent.** If something still cannot be saved, a red banner says so and the light goes back to what is really stored, so the screen never shows work that is not saved.
+- **Last backup** is shown under Backup in the library.
 
 ## Back up and restore
 
@@ -62,6 +70,8 @@ The backup file carries a schema version, as does the database, so a later versi
 - **Practice filter navigation** moves through the piece in reading order from the current target and wraps around at the ends. When nothing matches, a short notice appears and no bar is outlined.
 - **Light hit areas** are 44 pt tall and up to 56 pt wide. On narrow bars the width shrinks to a third of the bar (never below 30 pt) so neighbouring lights do not overlap; zoom in or hide the panel if bars are cramped. The coloured pill itself stays small so it does not cover notes.
 - **Bar marking has no mode switch.** A tap inside a system adds a barline and a drag inside it moves the system, so the two are told apart by movement (10 pt). One finger draws on the page, so scrolling there takes two fingers.
+- **Pens** set a light directly and never cycle; a long press still resets to grey whichever pen is picked. Tapping a light that already has the pen's colour does nothing, so it adds nothing to the history.
+- **Database connection.** Every read and write retries once on a fresh connection if the first attempt fails, except for errors a new connection cannot fix, such as a full disk. The connection is also reopened whenever the app returns after more than five seconds in the background.
 - **Gestures.** A tap only counts if the finger moves less than 10 pt and lifts within 550 ms; a long press is 550 ms. One-finger scrolling is left to Safari; a second finger cancels any pending tap and starts a pinch that the app handles itself (page pinch-zoom is disabled in the viewport meta tag so the layout cannot be zoomed accidentally).
 - **Panel visibility** follows orientation: shown in landscape, hidden in portrait, with the **Progress** button overriding until the next rotation. On screens narrower than 700 px the panel floats over the score.
 - **Bar numbers** are shown on the score only for the first bar of each system, in the left margin, to keep the page quiet. In bar marking every bar shows its number.
@@ -75,14 +85,15 @@ The backup file carries a schema version, as does the database, so a later versi
 
 Check these first:
 
-1. **Add to Home Screen and full-screen launch.** The manifest, icons and `apple-mobile-web-app-capable` tag are in place, but the install flow itself was not exercised on a device.
-2. **Pinch-to-zoom on the score** and that one-finger scrolling never triggers a light. Tested with synthesised touch events in WebKit, not with real fingers.
-3. **Long press** does not trigger the iOS text-selection callout (it is disabled in CSS, which usually suffices).
-4. **Wake Lock.** Supported in iPadOS Safari 16.4 and later; silently skipped otherwise.
-5. **Export in home-screen mode.** Safari's download behaviour in standalone apps varies by iPadOS version; if **Export backup** does nothing, use **Share backup…**.
-6. **Storage persistence.** `navigator.storage.persist()` is requested on first launch. iPadOS can still evict data from a site that has not been used for a long time, so export backups regularly.
-7. **Apple Pencil taps** are handled through the same pointer events as fingers but were not tested on hardware.
-8. **Memory on 30-page PDFs** at high zoom on an actual device.
+1. **Saving after the app has been in the background.** The tests close the database connection to imitate iPadOS dropping it, which is close but not identical. Tap some lights, leave the app for a few minutes, come back, tap more, then fully close and reopen it, and check everything is there.
+2. **Add to Home Screen and full-screen launch.** The manifest, icons and `apple-mobile-web-app-capable` tag are in place, but the install flow itself was not exercised on a device.
+3. **Pinch-to-zoom on the score** and that one-finger scrolling never triggers a light. Tested with synthesised touch events in WebKit, not with real fingers.
+4. **Long press** does not trigger the iOS text-selection callout (it is disabled in CSS, which usually suffices).
+5. **Wake Lock.** Supported in iPadOS Safari 16.4 and later; silently skipped otherwise.
+6. **Export in home-screen mode.** Safari's download behaviour in standalone apps varies by iPadOS version; if **Export backup** does nothing, use **Share backup…**.
+7. **Storage persistence.** `navigator.storage.persist()` is requested on first launch. iPadOS can still evict data from a site that has not been used for a long time, so export backups regularly.
+8. **Apple Pencil taps** are handled through the same pointer events as fingers but were not tested on hardware.
+9. **Memory on 30-page PDFs** at high zoom on an actual device.
 
 ## Development
 

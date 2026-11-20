@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Light } from '../components/Light'
 import { PdfPage } from '../components/PdfPage'
+import { PenTray } from '../components/PenTray'
 import { ProgressPanel } from '../components/ProgressPanel'
-import { HANDS, type Bar, type PieceData, type Settings, type System } from '../db/types'
+import { HANDS, nextLevel, type Bar, type Pen, type PieceData, type Settings, type System } from '../db/types'
 import type { PieceActions } from '../hooks/usePieceData'
 import { useElementWidth } from '../hooks/useElementWidth'
 import { usePdfDocument, type LoadedPdf } from '../hooks/usePdfDocument'
@@ -279,6 +280,7 @@ function PracticeView({ data, actions, pdf, settings, updateSettings }: ViewProp
                         H={pageH}
                         tint={settings.tint}
                         targetBarId={targetBar?.id ?? null}
+                        pen={settings.pen}
                         suppress={suppress}
                       />
                     ))}
@@ -288,6 +290,7 @@ function PracticeView({ data, actions, pdf, settings, updateSettings }: ViewProp
             </div>
           )}
         </div>
+        <PenTray pen={settings.pen} onPen={(pen) => updateSettings({ pen })} />
         {panelOpen && (
           <ProgressPanel data={data} actions={actions} settings={settings} onSettings={updateSettings} onJumpToBar={scrollToBar} now={now} />
         )}
@@ -305,13 +308,14 @@ interface SystemLightsProps {
   H: number
   tint: boolean
   targetBarId: string | null
+  pen: Pen | null
   suppress: React.RefObject<boolean>
 }
 
 const STRIP_H = 44
 const DOT_H = 17
 
-function SystemLights({ system, bars, data, actions, W, H, tint, targetBarId, suppress }: SystemLightsProps) {
+function SystemLights({ system, bars, data, actions, W, H, tint, targetBarId, pen, suppress }: SystemLightsProps) {
   const sysTop = system.rect.y * H
   const sysH = system.rect.h * H
   const first = bars[0]
@@ -334,17 +338,26 @@ function SystemLights({ system, bars, data, actions, W, H, tint, targetBarId, su
               <div className="bar-target" data-testid="target-outline" data-bar={bar.number} style={{ left: left - 2, top: sysTop - DOT_H - 4, width: width + 4, height: sysH + DOT_H + 6 }} />
             )}
             <div className="bar-strip" style={{ left, width, top: sysTop - STRIP_H + 2, height: STRIP_H }}>
-              {HANDS.map((hand) => (
-                <Light
-                  key={hand}
-                  hand={hand}
-                  level={levelOf(data.statuses, bar.id, hand)}
-                  barNumber={bar.number}
-                  hitWidth={hitWidth}
-                  suppress={suppress}
-                  onChange={(level) => void actions.setLevel(bar.id, hand, level)}
-                />
-              ))}
+              {HANDS.map((hand) => {
+                const level = levelOf(data.statuses, bar.id, hand)
+                return (
+                  <Light
+                    key={hand}
+                    hand={hand}
+                    level={level}
+                    barNumber={bar.number}
+                    hitWidth={hitWidth}
+                    suppress={suppress}
+                    onTap={() => {
+                      const next = pen ?? nextLevel(level)
+                      if (next !== level) void actions.setLevel(bar.id, hand, next)
+                    }}
+                    onReset={() => {
+                      if (level !== 'grey') void actions.setLevel(bar.id, hand, 'grey')
+                    }}
+                  />
+                )
+              })}
             </div>
           </div>
         )

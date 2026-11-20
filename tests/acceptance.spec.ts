@@ -504,3 +504,100 @@ test('9. the app loads and works with the network turned off', async () => {
     await context.setOffline(false)
   }
 })
+
+test('10. pens colour a light in one tap, and lights read L, R, H', async () => {
+  await page.goto('./')
+  // Running in a browser tab (not the home-screen app) shows the storage warning.
+  await expect(page.getByTestId('storage-warning')).toBeVisible()
+  await page.getByTestId('piece-card').getByRole('button', { name: /Test Score/ }).click()
+  await expect(page.locator('.light')).toHaveCount(36)
+
+  // Left hand first, then right hand, then hands together.
+  const hands = await page.locator('[data-testid="bar"][data-bar="6"] .light').evaluateAll((els) => els.map((e) => e.getAttribute('data-hand')))
+  expect(hands).toEqual(['LH', 'RH', 'HT'])
+  const letters = await page.locator('[data-testid="bar"][data-bar="6"] .light .dot').allTextContents()
+  expect(letters).toEqual(['L', 'R', 'H'])
+  const breakdown = await page.locator('.stack-row .label').allTextContents()
+  expect(breakdown).toEqual(['LH', 'RH', 'HT'])
+
+  await expectLevel(6, 'LH', 'grey')
+  await page.getByTestId('pen-green').click()
+  await expect(page.getByTestId('pen-green')).toHaveAttribute('aria-checked', 'true')
+  await tapLight(6, 'LH')
+  await expectLevel(6, 'LH', 'green')
+  await tapLight(6, 'LH') // tapping again with the same pen leaves it green
+  await expectLevel(6, 'LH', 'green')
+
+  await page.getByTestId('pen-red').click()
+  await expect(page.getByTestId('pen-green')).toHaveAttribute('aria-checked', 'false')
+  await tapLight(6, 'LH')
+  await expectLevel(6, 'LH', 'red')
+
+  await page.getByTestId('pen-yellow').click()
+  await tapLight(6, 'RH')
+  await expectLevel(6, 'RH', 'yellow')
+  // A long press still resets, whatever pen is picked.
+  await longPress(light(6, 'RH'))
+  await expectLevel(6, 'RH', 'grey')
+  await tapLight(6, 'RH')
+  await expectLevel(6, 'RH', 'yellow')
+
+  // Tapping the picked pen again puts it down: taps cycle colours again.
+  await page.getByTestId('pen-yellow').click()
+  await expect(page.locator('.pen[aria-checked="true"]')).toHaveCount(0)
+  await tapLight(6, 'RH')
+  await expectLevel(6, 'RH', 'green')
+  expected.set('6:LH', 'red')
+  expected.set('6:RH', 'green')
+
+  // The pen choice is remembered, and the lights are saved.
+  await page.getByTestId('pen-red').click()
+  await page.reload()
+  await expect(page.getByTestId('pen-red')).toHaveAttribute('aria-checked', 'true')
+  await expectLevel(6, 'LH', 'red')
+  await expectLevel(6, 'RH', 'green')
+  await page.getByTestId('pen-red').click()
+  await expect(page.locator('.pen[aria-checked="true"]')).toHaveCount(0)
+})
+
+test('11. a light still saves after the iPad drops the database connection', async () => {
+  await expectLevel(11, 'HT', 'grey')
+  await page.evaluate(() => (window as unknown as { __pptDebug: { closeDB: () => Promise<void> } }).__pptDebug.closeDB())
+  await tapLight(11, 'HT')
+  await expectLevel(11, 'HT', 'red')
+  await page.waitForTimeout(500)
+  await page.reload()
+  await expectLevel(11, 'HT', 'red')
+  await expect(page.getByTestId('save-error')).toHaveCount(0)
+  expected.set('11:HT', 'red')
+})
+
+test('12. a save that fails is reported and not shown as saved', async () => {
+  await expectLevel(11, 'RH', 'grey')
+  await page.evaluate(() => {
+    const w = window as unknown as { __realPut: typeof IDBObjectStore.prototype.put }
+    w.__realPut = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function () {
+      throw new DOMException('Simulated full disk', 'QuotaExceededError')
+    }
+  })
+  try {
+    await tapLight(11, 'RH')
+    await expect(page.getByTestId('save-error')).toBeVisible()
+    await expect(page.getByTestId('save-error')).toContainText('could not save that light')
+    // The light goes back to what is really stored.
+    await expectLevel(11, 'RH', 'grey')
+  } finally {
+    await page.evaluate(() => {
+      IDBObjectStore.prototype.put = (window as unknown as { __realPut: typeof IDBObjectStore.prototype.put }).__realPut
+    })
+  }
+  await page.getByTestId('save-error').getByRole('button', { name: 'Dismiss' }).click()
+  await expect(page.getByTestId('save-error')).toHaveCount(0)
+  // Saving works again once storage recovers.
+  await tapLight(11, 'RH')
+  await expectLevel(11, 'RH', 'red')
+  await page.reload()
+  await expectLevel(11, 'RH', 'red')
+  await expect(page.getByTestId('save-error')).toHaveCount(0)
+})

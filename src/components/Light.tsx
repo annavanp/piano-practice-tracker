@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { nextLevel, type Hand, type Level } from '../db/types'
+import type { Hand, Level } from '../db/types'
 
 const HAND_LETTER: Record<Hand, string> = { RH: 'R', LH: 'L', HT: 'H' }
 const LEVEL_GLYPH: Record<Level, string> = { grey: '', red: '✕', yellow: '−', green: '✓' }
@@ -14,7 +14,10 @@ interface Props {
   level: Level
   barNumber: number
   hitWidth: number
-  onChange: (level: Level) => void
+  /** A clean tap: cycle the colour, or apply the selected pen. */
+  onTap: () => void
+  /** A long press: reset to grey. */
+  onReset: () => void
   /** While true (pinch or scroll gesture in progress), taps are ignored. */
   suppress: RefObject<boolean>
 }
@@ -24,7 +27,7 @@ interface Props {
  * grey. Any movement (scroll, pinch) or a second finger cancels the gesture, so scrolling never
  * changes a light.
  */
-export function Light({ hand, level, barNumber, hitWidth, onChange, suppress }: Props) {
+export function Light({ hand, level, barNumber, hitWidth, onTap, onReset, suppress }: Props) {
   const [pressed, setPressed] = useState(false)
   const gesture = useRef<{ id: number; x: number; y: number; consumed: boolean; timer: number } | null>(null)
 
@@ -54,7 +57,7 @@ export function Light({ hand, level, barNumber, hitWidth, onChange, suppress }: 
           if (!g || g.consumed) return
           g.consumed = true
           setPressed(false)
-          onChange('grey')
+          onReset()
         }, LONG_PRESS_MS)
         gesture.current = { id: e.pointerId, x: e.clientX, y: e.clientY, consumed: false, timer }
         setPressed(true)
@@ -71,7 +74,7 @@ export function Light({ hand, level, barNumber, hitWidth, onChange, suppress }: 
         clear()
         if (consumed || suppress.current) return
         if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > MOVE_TOLERANCE_PX) return
-        onChange(nextLevel(level))
+        onTap()
       }}
       onPointerCancel={clear}
       onPointerLeave={clear}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as repo from '../db/repo'
+import { reportSaveError } from '../lib/saveErrors'
 import { statusId, type Hand, type Level, type PieceData, type Section, type System } from '../db/types'
 
 export interface PieceActions {
@@ -44,45 +45,71 @@ export function usePieceData(pieceId: string): { data: PieceData | null | undefi
           log: [...d.log, { pieceId, barId, hand, level, time }],
         }
       })
-      await repo.setStatus(pieceId, barId, hand, level, time)
+      try {
+        await repo.setStatus(pieceId, barId, hand, level, time)
+      } catch (err) {
+        reportSaveError(err, 'that light')
+        // Put the screen back to what is actually stored, so it never shows an unsaved light.
+        await reload().catch(() => undefined)
+      }
     },
-    [pieceId],
+    [pieceId, reload],
   )
 
   const saveSystems = useCallback(
     async (systems: System[]) => {
-      await repo.saveSystems(pieceId, systems)
-      await reload()
+      try {
+        await repo.saveSystems(pieceId, systems)
+      } catch (err) {
+        reportSaveError(err)
+      }
+      await reload().catch(() => undefined)
     },
     [pieceId, reload],
   )
 
   const updatePiece = useCallback(
     async (patch: { title?: string; composer?: string; firstBarNumber?: number }) => {
-      await repo.updatePiece(pieceId, patch)
-      await reload()
+      try {
+        await repo.updatePiece(pieceId, patch)
+      } catch (err) {
+        reportSaveError(err)
+      }
+      await reload().catch(() => undefined)
     },
     [pieceId, reload],
   )
 
   const addSection = useCallback(
     async (name: string, startBar: number, endBar: number) => {
-      await repo.addSection(pieceId, name, startBar, endBar)
-      await reload()
+      try {
+        await repo.addSection(pieceId, name, startBar, endBar)
+      } catch (err) {
+        reportSaveError(err)
+      }
+      await reload().catch(() => undefined)
     },
     [pieceId, reload],
   )
   const updateSection = useCallback(
     async (section: Section) => {
-      await repo.updateSection(section)
-      await reload()
+      try {
+        await repo.updateSection(section)
+      } catch (err) {
+        reportSaveError(err)
+      }
+      await reload().catch(() => undefined)
     },
     [reload],
   )
   const deleteSection = useCallback(
     async (id: string) => {
-      await repo.deleteSection(id)
-      await reload()
+      try {
+        await repo.deleteSection(id)
+      } catch (err) {
+        reportSaveError(err)
+      }
+      await reload().catch(() => undefined)
     },
     [reload],
   )

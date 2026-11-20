@@ -2,7 +2,8 @@
 export const SCHEMA_VERSION = 1
 
 export type Hand = 'RH' | 'LH' | 'HT'
-export const HANDS: Hand[] = ['RH', 'LH', 'HT']
+/** Display order everywhere: left hand, right hand, hands together. */
+export const HANDS: Hand[] = ['LH', 'RH', 'HT']
 
 export type Level = 'grey' | 'red' | 'yellow' | 'green'
 export const LEVELS: Level[] = ['grey', 'red', 'yellow', 'green']
@@ -103,14 +104,21 @@ export interface PracticeFilter {
   threshold: FilterThreshold
 }
 
+/** A pen sets a light straight to its colour in one tap. */
+export type Pen = 'red' | 'yellow' | 'green'
+export const PENS: Pen[] = ['red', 'yellow', 'green']
+
 export interface Settings {
   filter: PracticeFilter
   tint: boolean
+  /** The selected pen, or null to cycle colours by tapping. */
+  pen: Pen | null
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   filter: { hand: 'HT', threshold: 'red-yellow' },
   tint: false,
+  pen: null,
 }
 
 export interface PieceData {

@@ -5,6 +5,7 @@ import type { Piece } from '../db/types'
 import { backupFilename, canShareFiles, createBackup, downloadBlob, parseBackup, restoreBackup, shareBlob, type BackupFile, type BackupSummary } from '../lib/backup'
 import { countPages } from '../lib/pdf'
 import { percentGreen } from '../lib/progress'
+import { isStandalone, isStoragePersisted, lastBackupAt, recordBackup } from '../lib/storage'
 import { navigate } from '../router'
 
 interface PieceRow {
@@ -25,6 +26,9 @@ export function Library() {
   const [rows, setRows] = useState<PieceRow[] | null>(null)
   const [modal, setModal] = useState<ModalState>({ kind: 'none' })
   const [busy, setBusy] = useState(false)
+  const [backupAt, setBackupAt] = useState<number | undefined>(undefined)
+  const [persisted, setPersisted] = useState<boolean | null>(null)
+  const standalone = isStandalone()
   const pdfInput = useRef<HTMLInputElement>(null)
   const backupInput = useRef<HTMLInputElement>(null)
 
@@ -36,6 +40,8 @@ export function Library() {
       out.push({ piece, percent: data ? percentGreen(data.bars, data.statuses) : 0, barCount: data?.bars.length ?? 0 })
     }
     setRows(out)
+    setBackupAt(await lastBackupAt())
+    setPersisted(await isStoragePersisted())
   }, [])
 
   useEffect(() => {
@@ -61,14 +67,18 @@ export function Library() {
     if (modal.kind !== 'details') return
     const title = modal.title.trim() || 'Untitled'
     const composer = modal.composer.trim()
-    if (modal.piece) {
-      await repo.updatePiece(modal.piece.id, { title, composer })
-      setModal({ kind: 'none' })
-      await refresh()
-    } else if (modal.pdf) {
-      const piece = await repo.addPiece({ title, composer, pdf: modal.pdf, pageCount: modal.pageCount ?? 1 })
-      setModal({ kind: 'none' })
-      navigate({ name: 'setup', id: piece.id })
+    try {
+      if (modal.piece) {
+        await repo.updatePiece(modal.piece.id, { title, composer })
+        setModal({ kind: 'none' })
+        await refresh()
+      } else if (modal.pdf) {
+        const piece = await repo.addPiece({ title, composer, pdf: modal.pdf, pageCount: modal.pageCount ?? 1 })
+        setModal({ kind: 'none' })
+        navigate({ name: 'setup', id: piece.id })
+      }
+    } catch (err) {
+      setModal({ kind: 'error', message: `The piece could not be saved on this iPad. ${err instanceof Error ? err.message : ''}` })
     }
   }
 
@@ -90,6 +100,8 @@ export function Library() {
       const blob = await createBackup()
       if (share) await shareBlob(blob, backupFilename())
       else downloadBlob(blob, backupFilename())
+      await recordBackup()
+      setBackupAt(Date.now())
     } catch (err) {
       if (!(err instanceof Error && err.name === 'AbortError')) {
         setModal({ kind: 'error', message: err instanceof Error ? err.message : 'Export failed.' })
@@ -102,6 +114,14 @@ export function Library() {
   return (
     <div className="library">
       <h1>Pieces</h1>
+      {!standalone && (
+        <div className="notice" data-testid="storage-warning">
+          <strong>You are using the app in a Safari tab.</strong> Pieces saved here are kept apart from the home-screen app, and
+          Safari can delete them if you do not open this page for about a week. To keep your pieces safe, tap Share, then
+          Add to Home Screen, and always open the app from that icon. If you already added pieces here, export a backup
+          below and import it in the home-screen app.
+        </div>
+      )}
       <div className="row" style={{ marginBottom: 20 }}>
         <button className="primary" onClick={() => pdfInput.current?.click()} disabled={busy} data-testid="add-piece">
           Add piece from PDF…
@@ -156,6 +176,10 @@ export function Library() {
       <section className="backup">
         <h2>Backup</h2>
         <p>Export saves every piece, its PDF and all progress to one file. Import restores from such a file.</p>
+        <p data-testid="last-backup">
+          Last backup: {backupAt ? new Date(backupAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : 'never'}
+          {persisted === false && standalone && ' · storage is not yet marked as permanent on this iPad, so back up regularly'}
+        </p>
         <div className="row">
           <button onClick={() => void exportBackup(false)} disabled={busy} data-testid="export">
             Export backup
@@ -225,8 +249,12 @@ export function Library() {
           danger
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={async () => {
-            await repo.deletePiece(modal.piece.id)
-            setModal({ kind: 'none' })
+            try {
+              await repo.deletePiece(modal.piece.id)
+              setModal({ kind: 'none' })
+            } catch (err) {
+              setModal({ kind: 'error', message: err instanceof Error ? err.message : 'Delete failed.' })
+            }
             await refresh()
           }}
         />
@@ -262,8 +290,12 @@ export function Library() {
           danger
           onCancel={() => setModal({ kind: 'none' })}
           onConfirm={async () => {
-            await repo.clearAll()
-            setModal({ kind: 'none' })
+            try {
+              await repo.clearAll()
+              setModal({ kind: 'none' })
+            } catch (err) {
+              setModal({ kind: 'error', message: err instanceof Error ? err.message : 'Delete failed.' })
+            }
             await refresh()
           }}
         />
